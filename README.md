@@ -1,3 +1,6 @@
+complete step5 and the vectorizer file i think it's good but just make sure
+add too how to change the model and dimentions ask gemini or something
+
 Integrating Unsupported Models into pg_ai via FastAPI
 
 Table of Contents
@@ -50,9 +53,12 @@ Before running your FastAPI server, ensure you install all necessary Python pack
 
 pip install fastapi uvicorn "sentence-transformers[torchensemble]"
 
-Your FastAPI Server Code (for reference):
+Your FastAPI Server Code :
 
-# main.py (FastAPI Server)from fastapi import FastAPI, HTTPException
+# main.py 
+
+``` bash
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 import uvicorn
@@ -134,7 +140,7 @@ if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
     #run uvicorn main:app --reload it takes some time in the beginning to load the model
-   
+   ``` 
 
 Step 2: Modify pg_ai Source Code
 
@@ -154,11 +160,19 @@ from pydantic import BaseModel
 from typing_extensions import override
 
 from ..embeddings import Embedder, EmbeddingResponse, EmbeddingVector, Usage, logger
-import httpx # Import httpx here for type hinting, though actual call is in vectorizer.py
 
 class FastAPIHFLocal(BaseModel, Embedder):
+    """
+    Embedder that uses a FastAPI-based Hugging Face local server to embed documents into vector representations.
+
+    Attributes:
+        implementation (Literal["fastapi_hf_embed"]): The literal identifier for this implementation.
+        url (str): The URL of the FastAPI server.
+        dimensions (int): The dimensionality of the embeddings.
+    """
+
     implementation: Literal["fastapi_hf_embed"]
-    url: str # Base URL of your FastAPI server (e.g., http://host.docker.internal:8000)
+    url: str
     dimensions: int
 
     @override
@@ -166,26 +180,18 @@ class FastAPIHFLocal(BaseModel, Embedder):
         self, documents: list[str]
     ) -> AsyncGenerator[list[EmbeddingVector], None]:
         """
-        This method is not used directly as the embedding logic for
-        'fastapi_hf_embed' is handled within vectorizer.py's _generate_embeddings.
-        It's kept for interface compatibility.
+        This method is not used as the embedding logic is handled in vectorizer.py.
         """
-        # This method will be effectively bypassed by the custom logic in vectorizer.py
-        # However, if you wanted to implement it here, you would put the httpx call:
-        # async with httpx.AsyncClient() as client:
-        #     response = await client.post(f"{self.url}/batch_embed", json={"texts": documents})
-        #     response.raise_for_status()
-        #     embeddings_data = response.json()
-        #     yield embeddings_data.get("embeddings")
         raise NotImplementedError("Embedding is handled in vectorizer.py for fastapi_hf_embed")
 
     @override
     def _max_chunks_per_batch(self) -> int:
-        return 2048 # Adjust based on your FastAPI server's batching capabilities
+        # Arbitrary default, can be tuned if needed
+        return 2048
 
     @override
     async def setup(self):
-        # Optional: You could add a health check call to your FastAPI server here
+        # No setup required for FastAPIHFLocal
         pass
 
     @override
@@ -194,17 +200,18 @@ class FastAPIHFLocal(BaseModel, Embedder):
         raise NotImplementedError("Embedding is handled in vectorizer.py for fastapi_hf_embed")
 
     async def _context_length(self) -> int | None:
-        return None # Or specify a context length if your model has one
-
-
+        # Arbitrary value; can be adjusted if needed
+        return None
 ```
+
+
 Update pgai/vectorizer/embedders/__init__.py
 This file makes your new embedder available for pg_ai to recognize.
 
 # pgai/vectorizer/embedders/__init__.py
 
 ```bash
-from .fastapi_hf_local import FastAPIHFLocal as FastAPIHFLocal # Add this line
+from .fastapi_hf_local import FastAPIHFLocal as FastAPIHFLocal # just Add this line
 ```
 
 
@@ -272,6 +279,7 @@ async def _generate_embeddings(
 ```
 
 Step 3: Build a Custom pg_ai Docker Image
+
 After modifying the pg_ai source code locally, you need to build a new Docker image for your vectorizer-worker service that includes these changes.
 
 Install httpx for the vectorizer-worker:
