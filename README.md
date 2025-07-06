@@ -288,13 +288,13 @@ After modifying the pg_ai source code locally, you need to build a new Docker im
 Install httpx for the vectorizer-worker:
 
 
-# Dockerfile
+# content of Dockerfile
 FROM timescale/pgai-vectorizer-worker:latest
 
-# Install httpx for the vectorizer worker to make HTTP requests
+#Install httpx for the vectorizer worker to make HTTP requests
 RUN pip install httpx
 
-# Copy the updated files into the image
+#Copy the updated files into the image
 COPY pgai/vectorizer/vectorizer.py /app/pgai/vectorizer/vectorizer.py
 COPY pgai/vectorizer/embedders/__init__.py /app/pgai/vectorizer/embedders/__init__.py
 COPY pgai/vectorizer/embedders/fastapi_hf_local.py /app/pgai/vectorizer/embedders/fastapi_hf_local.py
