@@ -583,6 +583,19 @@ ALTER FUNCTION ai.embedding_fastapi(text, integer, text, jsonb, text)
 ```
 
 Execute this SQL statement in your PostgreSQL client.
+``` bash
+CREATE TABLE test_documents (
+    id SERIAL PRIMARY KEY, -- SERIAL makes it auto-incrementing
+    text_content TEXT NOT NULL,
+    embedding_vector vector(384) -- Assuming your model outputs 384 dimensions
+);
+
+INSERT INTO test_documents (text_content) VALUES ('This is the first test document.');
+INSERT INTO test_documents (text_content) VALUES ('Another document for testing embeddings.');
+INSERT INTO test_documents (text_content) VALUES ('The quick brown fox jumps over the lazy dog.');
+INSERT INTO test_documents (text_content) VALUES ('A lazy cat slept soundly on the mat.');
+
+```
 
 Step 6: Create the pg_ai Vectorizer
 
@@ -613,11 +626,10 @@ SELECT ai.create_vectorizer(
 ```
 
 Step 7: Usage and Verification
-INSERT INTO test_documents (text_content) VALUES ('This is the first test document.');
-INSERT INTO test_documents (text_content) VALUES ('Another document for testing embeddings.');
-INSERT INTO test_documents (text_content) VALUES ('The quick brown fox jumps over the lazy dog.');
-INSERT INTO test_documents (text_content) VALUES ('A lazy cat slept soundly on the mat.');
 
+``` bash
+INSERT INTO test_documents (text_content) VALUES ('Another document for testing embeddings.');
+```
 
 Verify Embeddings:
 
