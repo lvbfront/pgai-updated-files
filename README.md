@@ -146,6 +146,9 @@ Step 2: Modify pg_ai Source Code
 
 You need to tell pg_ai how to interact with your FastAPI server. This involves creating a new embedder definition and modifying the core vectorizer logic to use it.
 
+the files structure
+![image](https://github.com/user-attachments/assets/bcb179da-d5b3-4a7a-be79-31cbc9e71447)
+
 Create pgai/vectorizer/embedders/fastapi_hf_local.py
 This file defines the interface for your custom FastAPI embedder.
 
