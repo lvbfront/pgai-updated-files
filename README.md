@@ -1,5 +1,3 @@
-complete step5 and the vectorizer file i think it's good but just make sure
-add too how to change the model and dimentions ask gemini or something
 
 Integrating Unsupported Models into pg_ai via FastAPI
 
@@ -12,13 +10,11 @@ Step 2: Modify pg_ai Source Code
 
 Step 3: Build a Custom pg_ai Docker Image
 
-Step 4: Update Docker Compose Configuration
+Step 4: Define the PostgreSQL  Functions
 
-Step 5: Define the PostgreSQL ai.fastapi_hf_embed Function
+Step 5: Create the pg_ai Vectorizer
 
-Step 6: Create the pg_ai Vectorizer
-
-Step 7: Usage and Verification
+Step 6: Usage and Verification
 
 Prerequisites
 Before you begin, ensure you have:
@@ -51,7 +47,7 @@ Install FastAPI Server Dependencies:
 
 Before running your FastAPI server, ensure you install all necessary Python packages. This typically includes fastapi, uvicorn, and sentence-transformers (which will also pull in transformers and torch).
 
-pip install fastapi uvicorn "sentence-transformers[torchensemble]"
+pip install fastapi uvicorn "sentence-transformers[torchensemble]" pydantic
 
 Your FastAPI Server Code :
 
@@ -141,6 +137,10 @@ if __name__ == "__main__":
 
     #run uvicorn main:app --reload it takes some time in the beginning to load the model
    ``` 
+
+run in the terminal 'server' is the name of the python file
+python -m uvicorn server:app --reload
+
 
 Step 2: Modify pg_ai Source Code
 
@@ -287,11 +287,6 @@ After modifying the pg_ai source code locally, you need to build a new Docker im
 
 Install httpx for the vectorizer-worker:
 
-Your vectorizer-worker's Python environment needs the httpx library to make HTTP requests to your FastAPI server. You should add this to your Dockerfile.
-
-A common way to do this in your Dockerfile is to add a RUN pip install httpx command:
-
-
 
 # Dockerfile
 FROM timescale/pgai-vectorizer-worker:latest
@@ -304,34 +299,93 @@ COPY pgai/vectorizer/vectorizer.py /app/pgai/vectorizer/vectorizer.py
 COPY pgai/vectorizer/embedders/__init__.py /app/pgai/vectorizer/embedders/__init__.py
 COPY pgai/vectorizer/embedders/fastapi_hf_local.py /app/pgai/vectorizer/embedders/fastapi_hf_local.py
 
+
+# example for docker-compose.yml
+name: pgai-test-env # A unique name for your test project
+
+services:
+  db-test: # Renamed database service
+    image: timescale/timescaledb-ha:pg17
+    environment:
+      POSTGRES_PASSWORD: postgres
+      # You can omit API keys here if your FastAPI server doesn't need them directly from DB
+      # or if you prefer to manage them in the vectorizer-worker-test service.
+    ports:
+      - "5433:5432" # Changed host port to avoid conflict with main DB (5432)
+    volumes:
+      - data-test:/home/postgres/pgdata/data # New named volume for test data
+    command: [ "-c", "ai.ollama_host=http://ollama:11434" ] # Keep if you use ollama
+
+  vectorizer-worker-test: # Renamed vectorizer worker service
+    image: my-test-vectorizer-worker:latest # change this
+    environment:
+      PGAI_VECTORIZER_WORKER_DB_URL: postgres://postgres:postgres@db-test:5432/postgres # Connects to the test DB
+      # Include any other environment variables your worker needs, e.g., API keys
+      OLLAMA_HOST: http://ollama:11434
+      GEMINI_API_KEY: ''
+      HUGGINGFACE_API_KEY: ''
+      PATH: /home/pgaiuser/.local/bin:$PATH
+    volumes:
+      # If your credentials.json is critical and needs to be mounted, adjust path
+      - /home/awb9/pgai/credentials.json:/app/credentials.json
+    command: [ "--poll-interval", "5s", "--log-level", "DEBUG" ] # Keep your worker command
+
+  ollama: # Keep ollama if your FastAPI or other services use it
+    image: ollama/ollama
+    deploy:
+      resources:
+        limits:
+          memory: 6g
+
+  pgadmin-test: # Renamed pgAdmin service
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5051:80" # Changed host port to avoid conflict with main pgAdmin (5050)
+    depends_on:
+      - db-test # Depends on the test DB
+      
+volumes:
+  data-test: # New named volume for the test database
+
+  
+
 Command to build the new image:
+
 
 Navigate to the directory containing your Dockerfile and run:
 
-docker build -t my-pgai-vectorizer-worker:latest .
 
--t my-pgai-vectorizer-worker:latest: Tags the newly built image with this name. This is the image name you refer to in your docker-compose.yml.
+ensure it is the same name as in that  docker-compose.yml file
 
-.: Specifies the build context (the current directory), telling Docker to look for the Dockerfile and copy files from here.
-
-
-
-
-Step 4: Update Docker Compose Configuration
-Your docker-compose.yml needs to reference the custom image you just built for the vectorizer-worker service.
-
-# docker-compose.yml
-vectorizer-worker:
-    image: my-pgai-vectorizer-worker:latest # <--- This should point to your custom image
+  vectorizer-worker-test: # Renamed vectorizer worker service
+    image: my-test-vectorizer-worker:latest # change this
     
+``` bash
+docker build -t my-test-vectorizer-worker:latest .
+```
 
-Deploy the updated services:
+ensure the name of the  docker-compose.yml file in my case it is docker-compose.test.yml
+```bash
+docker-compose -f docker-compose.test.yml up -d
+```
 
-Navigate to the directory containing your docker-compose.yml and run:
+in the postgresql
 
-docker-compose up -d --build
+```bash
+CREATE EXTENSION IF NOT EXISTS ai CASCADE;
+```
+in the terminal
 
-The --build flag is crucial here to ensure Docker Compose rebuilds the vectorizer-worker image using your Dockerfile before starting the container.
+docker-compose -f docker-compose.test.yml run --rm --entrypoint "python -m pgai install -d <your db link>" vectorizer-worker-test
+docker compose up -d
+
+
+
+
+
 
 
 Step 5: Define the PostgreSQL ai.fastapi_hf_embed Function
@@ -343,10 +397,6 @@ CREATE EXTENSION IF NOT EXISTS plpython3u;
 
 Install requests for PL/Python3u:
 
-The PL/Python3u function uses the requests library to make HTTP calls. You need to ensure requests is installed within the PostgreSQL container's Python environment. This is usually done by modifying the db service's Dockerfile or by executing a command within the running PostgreSQL container.
-
-You can manually install it in the running db container, but this change won't persist if the container is recreated.
-
 docker exec -it <db_container_name_or_id> bash
 # Inside the container:
 pip install requests
@@ -355,7 +405,7 @@ exit
 
 
 PostgreSQL Function Definition:
-
+``` bash
 -- FUNCTION: ai.fastapi_hf_embed(url text, input_text text, api_key text, input_type text, verbose boolean)
 -- This function is crucial for pg_ai to interact with your FastAPI server.
 
@@ -429,7 +479,7 @@ $BODY$;
 ALTER FUNCTION ai.fastapi_hf_embed(text, text, text, text, boolean)
     OWNER TO postgres;
 
-
+```
 edit validate_embeding function
 ``` bash
 -- FUNCTION: ai._validate_embedding(jsonb)
@@ -494,73 +544,103 @@ GRANT EXECUTE ON FUNCTION ai._validate_embedding(jsonb) TO PUBLIC;
 GRANT EXECUTE ON FUNCTION ai._validate_embedding(jsonb) TO postgres;
 
 ```
+
+# postgresql function
+``` bash
+-- Drop the old SQL helper function if it exists
+DROP FUNCTION IF EXISTS ai.embedding_fastapi(text, integer, text, jsonb, text);
+
+-- Create or replace the SQL helper function
+-- This function is called by ai.create_vectorizer to generate the JSONB config.
+CREATE OR REPLACE FUNCTION ai.embedding_fastapi(
+    model_name text,     -- e.g., 'paraphrase-MiniLM-L3-v2'
+    dimensions integer,  -- e.g., 384
+    fastapi_base_url text DEFAULT NULL::text, -- The base URL of your FastAPI server (e.g., 'http://host.docker.internal:8000')
+    options jsonb DEFAULT NULL::jsonb,
+    keep_alive text DEFAULT NULL::text
+)
+RETURNS jsonb
+LANGUAGE 'sql'
+COST 100
+IMMUTABLE PARALLEL UNSAFE
+SET search_path=pg_catalog, pg_temp
+AS $BODY$
+    SELECT json_strip_nulls(json_build_object(
+        'implementation', 'fastapi_hf_embed', -- This tells pg_ai to use the 'fastapi_hf_embed' Python implementation
+        'config_type', 'custom_local',
+        'model', model_name,
+        'dimensions', dimensions,
+        'url', COALESCE(fastapi_base_url, 'http://host.docker.internal:8000'), -- This URL will be passed to the PL/Python function
+        'options', options,
+        'keep_alive', keep_alive
+    ))
+$BODY$;
+
+ALTER FUNCTION ai.embedding_fastapi(text, integer, text, jsonb, text)
+    OWNER TO postgres;
+
+
+```
+
 Execute this SQL statement in your PostgreSQL client.
 
 Step 6: Create the pg_ai Vectorizer
-Now, you can create or update your pg_ai vectorizer to use your custom FastAPI embedder. The embedding parameter will reference ai.embedding_fastapi, and the scheduling parameter should be ai.scheduling_realtime() for automatic processing.
 
--- Drop the existing vectorizer if it's already created with the same name
-SELECT ai.drop_vectorizer('my_table_vectorizer_new');
-
--- Create the vectorizer with real-time scheduling
+``` bash
+-- Create the new vectorizer
 SELECT ai.create_vectorizer(
-    source => 'my_table'::regclass,
-    name => 'my_table_vectorizer_new'::text,
-    destination => ai.destination_column('content_embedding_text'),
-    loading => ai.loading_column('content'),
+    source => 'test_documents'::regclass,
+    name => 'test_documents_vectorizer'::text,
+    destination => ai.destination_column('embedding_vector'),
+    loading => ai.loading_column('text_content'),
     parsing => ai.parsing_auto(),
     embedding => ai.embedding_fastapi(
-        'http://host.docker.internal:8000/embed', -- URL of your FastAPI /embed endpoint
-        'paraphrase-MiniLM-L3-v2',                -- Model name (used as input_text by the PL/Python function)
-        NULL::text,                               -- api_key (pass your API key if needed by FastAPI)
-        NULL::text,                               -- input_type
-        false                                     -- verbose
+        'paraphrase-MiniLM-L3-v2',                -- model_name (text)
+        384,                                      -- dimensions (integer)
+        'http://host.docker.internal:8000'        -- fastapi_base_url (text)
+        -- options and keep_alive are optional and can be omitted or set to NULL
     ),
     chunking => ai.chunking_none(),
     indexing => ai.indexing_none(),
     formatting => ai.formatting_python_template(),
-    scheduling => ai.scheduling_realtime(), -- IMPORTANT: Enables automatic processing
     processing => ai.processing_default(),
     queue_schema => NULL::name,
     queue_table => NULL::name,
     grant_to => ai.grant_to(),
-    enqueue_existing => true, -- Set to true to process existing rows immediately
+    enqueue_existing => true,
     if_not_exists => false
 );
-
-Usage when making the vectorizer:
-
-The embedding parameter in ai.create_vectorizer is where you specify your custom embedder. The ai.embedding_fastapi function takes the following arguments:
+```
 
 Step 7: Usage and Verification
+INSERT INTO test_documents (text_content) VALUES ('This is the first test document.');
+INSERT INTO test_documents (text_content) VALUES ('Another document for testing embeddings.');
+INSERT INTO test_documents (text_content) VALUES ('The quick brown fox jumps over the lazy dog.');
+INSERT INTO test_documents (text_content) VALUES ('A lazy cat slept soundly on the mat.');
 
-INSERT INTO my_table (id, content)
-VALUES (6, 'This is a new sentence about the weather.');
-
-INSERT INTO my_table (id, content)
-VALUES (7, 'Another example for testing similarity search.');
 
 Verify Embeddings:
 
+``` bash
 WITH query_embedding_vector AS (
     SELECT ai.fastapi_hf_embed(
         'http://host.docker.internal:8000/embed',
-        'How is the climate today?', -- Your search query
+        'Animals that like to sleep.', -- Your search query
         NULL::text,
         NULL::text,
         false
     ) AS embedding_vector
 )
 SELECT
-    m.id,
-    m.content,
-    (1 - (m.content_embedding_text <=> q.embedding_vector)) AS cosine_similarity_score
+    td.id,
+    td.text_content,
+    (1 - (td.embedding_vector <=> q.embedding_vector)) AS cosine_similarity_score
 FROM
-    my_table m,
+    test_documents td,
     query_embedding_vector q
 ORDER BY
-    m.content_embedding_text <=> q.embedding_vector
+    td.embedding_vector <=> q.embedding_vector
 LIMIT 3;
-
+```
 Conclusion
 By following these steps, you can successfully integrate any embedding model accessible via a FastAPI server into your pg_ai setup. This provides a flexible and scalable solution for managing and searching vector embeddings within your PostgreSQL database.
