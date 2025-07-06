@@ -301,6 +301,7 @@ COPY pgai/vectorizer/embedders/fastapi_hf_local.py /app/pgai/vectorizer/embedder
 
 
 # example for docker-compose.yml
+``` bash
 name: pgai-test-env # A unique name for your test project
 
 services:
@@ -350,7 +351,7 @@ services:
 volumes:
   data-test: # New named volume for the test database
 
-  
+  ```
 
 Command to build the new image:
 
