@@ -426,6 +426,71 @@ $BODY$;
 ALTER FUNCTION ai.fastapi_hf_embed(text, text, text, text, boolean)
     OWNER TO postgres;
 
+
+edit validate_embeding function
+``` bash
+-- FUNCTION: ai._validate_embedding(jsonb)
+
+-- DROP FUNCTION IF EXISTS ai._validate_embedding(jsonb);
+
+CREATE OR REPLACE FUNCTION ai._validate_embedding(
+	config jsonb)
+    RETURNS void
+    LANGUAGE 'plpgsql'
+    COST 100
+    IMMUTABLE PARALLEL UNSAFE
+    SET search_path=pg_catalog, pg_temp
+AS $BODY$
+declare
+    _config_type pg_catalog.text;
+    _implementation pg_catalog.text;
+begin
+    if pg_catalog.jsonb_typeof(config) operator(pg_catalog.!=) 'object' then
+        raise exception 'embedding config is not a jsonb object';
+    end if;
+
+    _config_type = config operator(pg_catalog.->>) 'config_type';
+    if _config_type is null or _config_type not in ('embedding', 'custom_local') then
+        raise exception 'invalid config_type for embedding config (debug: config_type = %)', _config_type;
+    end if;
+
+    _implementation = config operator(pg_catalog.->>) 'implementation';
+    if _config_type = 'embedding' then
+        case _implementation
+            when 'openai' then
+                -- ok
+            when 'ollama' then
+                -- ok
+            when 'voyageai' then
+                -- ok
+            when 'litellm' then
+                -- ok
+            else
+                if _implementation is null then
+                    raise exception 'embedding implementation not specified';
+                else
+                    raise exception 'invalid embedding implementation: "%"', _implementation;
+                end if;
+        end case;
+    elsif _config_type = 'custom_local' then
+        if _implementation not in ('huggingface_embed_try2', 'fastapi_hf_embed') then
+            raise exception 'invalid custom_local implementation: "%"', _implementation;
+        end if;
+        if config operator(pg_catalog.->>) 'implementation' is null or config operator(pg_catalog.->>) 'dimensions' is null then
+            raise exception 'missing implementation or dimensions for custom_local embedding';
+        end if;
+    end if;
+end
+$BODY$;
+
+ALTER FUNCTION ai._validate_embedding(jsonb)
+    OWNER TO postgres;
+
+GRANT EXECUTE ON FUNCTION ai._validate_embedding(jsonb) TO PUBLIC;
+
+GRANT EXECUTE ON FUNCTION ai._validate_embedding(jsonb) TO postgres;
+
+```
 Execute this SQL statement in your PostgreSQL client.
 
 Step 6: Create the pg_ai Vectorizer
@@ -464,19 +529,7 @@ Usage when making the vectorizer:
 
 The embedding parameter in ai.create_vectorizer is where you specify your custom embedder. The ai.embedding_fastapi function takes the following arguments:
 
-url (text): The full URL to your FastAPI server's single-text embedding endpoint (e.g., 'http://host.docker.internal:8000/embed').
-
-input_text (text): This parameter is used by pg_ai to pass the content to be embedded. When called via ai.create_vectorizer, pg_ai will automatically substitute the actual content from your loading column here. For the create_vectorizer call itself, you can provide a placeholder like the model name ('paraphrase-MiniLM-L3-v2') or any string, as pg_ai will internally manage the actual text passed during processing.
-
-api_key (text, optional): If your FastAPI server requires an API key for authentication, provide it here (e.g., 'your_fastapi_api_key'). Otherwise, use NULL::text.
-
-input_type (text, optional): If your FastAPI server supports different input types, specify it here. Otherwise, use NULL::text.
-
-verbose (boolean, optional): Set to true for more detailed logging from the PL/Python3u function.
-
 Step 7: Usage and Verification
-Insert data into my_table:
-Now, you only need to insert id and content. pg_ai will automatically handle the embedding.
 
 INSERT INTO my_table (id, content)
 VALUES (6, 'This is a new sentence about the weather.');
@@ -485,12 +538,6 @@ INSERT INTO my_table (id, content)
 VALUES (7, 'Another example for testing similarity search.');
 
 Verify Embeddings:
-After a short delay (depending on your vectorizer-worker's poll interval), query your table to see the content_embedding_text column populated:
-
-SELECT id, content, content_embedding_text FROM my_table;
-
-Perform Similarity Search:
-You can now perform similarity searches directly in SQL using your ai.fastapi_hf_embed function for the query text:
 
 WITH query_embedding_vector AS (
     SELECT ai.fastapi_hf_embed(
