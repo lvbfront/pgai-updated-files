@@ -655,5 +655,66 @@ ORDER BY
     td.embedding_vector <=> q.embedding_vector
 LIMIT 3;
 ```
+
+
+# To use different model, you need to change this line in the backend
+``` bash
+        _model = SentenceTransformer('all-mpnet-base-v2') # New model name
+```
+
+# and how to make the vectorizer (different table)
+``` bash
+
+-- Create the new vectorizer for 'mytable'
+SELECT ai.create_vectorizer(
+    source => 'mytable'::regclass,
+    name => 'mytable_vectorizer'::text,
+    destination => ai.destination_column('embedding_vector'),
+    loading => ai.loading_column('content'),
+    parsing => ai.parsing_auto(),
+    embedding => ai.embedding_fastapi(
+        'all-mpnet-base-v2',                -- *** IMPORTANT: Model name ***
+        768,                                -- *** IMPORTANT: Changed to 768 dimensions ***
+        'http://host.docker.internal:8000'
+    ),
+    chunking => ai.chunking_none(),
+    indexing => ai.indexing_none(),
+    formatting => ai.formatting_python_template(),
+    processing => ai.processing_default(),
+    queue_schema => NULL::name,
+    queue_table => NULL::name,
+    grant_to => ai.grant_to(),
+    enqueue_existing => true,
+    if_not_exists => false
+);
+```
+
+#similarity search with the new model
+``` bash
+
+WITH query_embedding_vector AS (
+    SELECT ai.fastapi_hf_embed(
+        'http://host.docker.internal:8000/embed',
+        'What about new technologies and learning?', -- Your search query
+        NULL::text,
+        NULL::text,
+        false
+    ) AS embedding_vector
+)
+SELECT
+    m.id,
+    m.content,
+    -- Calculate cosine similarity score: 1 - cosine_distance
+    (1 - (m.embedding_vector <=> q.embedding_vector)) AS cosine_similarity_score
+FROM
+    mytable m,
+    query_embedding_vector q
+ORDER BY
+    -- Order by cosine distance in ascending order (smaller distance = higher similarity)
+    m.embedding_vector <=> q.embedding_vector
+LIMIT 3; -- Get the top 3 most similar results
+```
+
+
 Conclusion
 By following these steps, you can successfully integrate any embedding model accessible via a FastAPI server into your pg_ai setup. This provides a flexible and scalable solution for managing and searching vector embeddings within your PostgreSQL database.
